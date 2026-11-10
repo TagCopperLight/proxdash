@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>proxdash</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">prox<span>dash</span></div>
+    <nav>
+      <a href="#usage" data-page="usage">Usage</a>
+      <a href="#accounts" data-page="accounts">Accounts</a>
+      <a href="#logs" data-page="logs">Logs</a>
+      <a href="#config" data-page="config">Config</a>
+    </nav>
+    <div class="foot">
+      <span id="pulse" class="dot"></span><span id="pulse-text">proxy</span>
+    </div>
+  </aside>
+  <main id="page"></main>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
