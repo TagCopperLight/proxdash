@@ -4,21 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>proxdash</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='4' fill='%2373bff9'/%3E%3C/svg%3E">
+  <link rel="preload" href="/fonts/Monaco.otf" as="font" type="font/otf" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="brand">prox<span>dash</span></div>
+  <header class="top">
+    <a class="brand" href="#usage">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="10.5" ry="4.5" transform="rotate(-25 12 12)" fill="none" stroke="#5a5a62" stroke-width="1.4"/><circle cx="12" cy="12" r="4" fill="#73bff9"/></svg>
+      <span>PROXDASH</span>
+    </a>
     <nav>
-      <a href="#usage" data-page="usage">Usage</a>
-      <a href="#accounts" data-page="accounts">Accounts</a>
-      <a href="#logs" data-page="logs">Logs</a>
-      <a href="#config" data-page="config">Config</a>
+      <a href="#usage" data-page="usage"><svg class="i" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg><span>Usage</span></a>
+      <a href="#accounts" data-page="accounts"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/></svg><span>Accounts</span></a>
+      <a href="#logs" data-page="logs"><svg class="i" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Logs</span></a>
+      <a href="#config" data-page="config"><svg class="i" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Config</span></a>
     </nav>
-    <div class="foot">
-      <span id="pulse" class="dot"></span><span id="pulse-text">proxy</span>
-    </div>
-  </aside>
+    <div class="link" title="CLIProxyAPI's admin API">Proxy <span id="pulse"></span></div>
+  </header>
   <main id="page"></main>
   <div id="tooltip" class="tooltip" hidden></div>
   <script type="module" src="/app.js"></script>

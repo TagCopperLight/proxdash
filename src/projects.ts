@@ -21,12 +21,17 @@ export async function projectOf(sessionId: string): Promise<string | null> {
   return null;
 }
 
+/** Reads until the first line carrying a cwd: lines before it (titles, queued prompts with pasted images) can weigh megabytes. */
 async function cwdOf(path: string) {
-  // The first lines can be summaries or snapshots without a cwd; the head of the file is enough.
-  const head = await Bun.file(path).slice(0, 256 * 1024).text();
-  for (const line of head.split("\n")) {
-    const m = line.match(/"cwd":"((?:[^"\\]|\\.)*)"/);
-    if (m) return JSON.parse(`"${m[1]}"`) as string;
+  const decoder = new TextDecoder();
+  let rest = "";
+  for await (const chunk of Bun.file(path).stream()) {
+    const lines = (rest + decoder.decode(chunk, { stream: true })).split("\n");
+    rest = lines.pop()!;
+    for (const line of lines) {
+      const m = line.match(/"cwd":"((?:[^"\\]|\\.)*)"/);
+      if (m) return JSON.parse(`"${m[1]}"`) as string;
+    }
   }
   return null;
 }

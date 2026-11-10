@@ -25,6 +25,8 @@ db.run(`CREATE TABLE IF NOT EXISTS requests (
   session_id TEXT, project TEXT
 )`);
 db.run("CREATE INDEX IF NOT EXISTS requests_ts ON requests (ts)");
+// The proxy only knows accounts by email; the name shown everywhere is chosen here.
+db.run("CREATE TABLE IF NOT EXISTS names (account TEXT PRIMARY KEY, name TEXT NOT NULL)");
 
 export const RETENTION_MS = 30 * 24 * 3600_000;
 

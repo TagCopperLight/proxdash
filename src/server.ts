@@ -8,16 +8,61 @@ const PUBLIC = `${import.meta.dir}/../public`;
 
 const latestReading = db.query<Reading, [string]>("SELECT * FROM readings WHERE account = ? ORDER BY ts DESC LIMIT 1");
 const readingsSince = db.query<Reading, [number]>("SELECT * FROM readings WHERE ts >= ? ORDER BY ts");
+const nameOf = db.query<{ name: string }, [string]>("SELECT name FROM names WHERE account = ?");
+const setName = db.query("INSERT INTO names VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET name = excluded.name");
 
+/** Until renamed, an account is called by its email's local part: short, and readable without the domain. */
+const defaultName = (email: string) => {
+  const local = email.split("@")[0]!;
+  return local.charAt(0).toUpperCase() + local.slice(1);
+};
+
+/** Sorted by credential file so each account keeps its place, and so its colour, across pages. */
 async function accounts() {
   return (await credentials())
     .filter((c) => c.provider === "claude")
-    .map((c) => ({
-      name: c.name,
-      email: c.email ?? c.label ?? c.name,
-      disabled: c.disabled,
-      reading: (c.email && latestReading.get(c.email)) || null,
-    }));
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => {
+      const email = c.email ?? c.label ?? c.name;
+      const chosen = nameOf.get(email)?.name;
+      return {
+        id: c.name,
+        email,
+        name: chosen ?? defaultName(email),
+        named: chosen !== undefined,
+        disabled: c.disabled,
+        reading: (c.email && latestReading.get(c.email)) || null,
+      };
+    });
+}
+
+type Totals = { requests: number; failed: number; input: number; output: number; cache_read: number; cache_write: number };
+// SUM over no rows is NULL; totals of an empty range are zeros.
+const SUMS = `COUNT(*) AS requests, COALESCE(SUM(status <> 200), 0) AS failed, COALESCE(SUM(input), 0) AS input,
+  COALESCE(SUM(output), 0) AS output, COALESCE(SUM(cache_read), 0) AS cache_read, COALESCE(SUM(cache_write), 0) AS cache_write`;
+const totals = db.query<Totals, [number]>(`SELECT ${SUMS} FROM requests WHERE ts >= ?`);
+const byProject = db.query<Totals & { key: string | null }, [number]>(
+  `SELECT project AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY project ORDER BY requests DESC`);
+const byModel = db.query<Totals & { key: string }, [number]>(
+  `SELECT model AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY model ORDER BY requests DESC`);
+const byAccount = db.query<Totals & { key: string }, [number]>(
+  `SELECT account AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY account`);
+const byHour = db.query<{ hour: number; account: string; requests: number }, [number]>(
+  `SELECT ts / 3600000 * 3600000 AS hour, account, COUNT(*) AS requests FROM requests WHERE ts >= ? GROUP BY hour, account ORDER BY hour`);
+
+// A session served by more than one account lost its prompt cache somewhere: what session affinity should prevent.
+const sessions = db.query<{ sessions: number; split: number }, [number]>(
+  `SELECT COUNT(*) AS sessions, COALESCE(SUM(accounts > 1), 0) AS split
+   FROM (SELECT COUNT(DISTINCT account) AS accounts FROM requests WHERE ts >= ? AND session_id IS NOT NULL GROUP BY session_id)`);
+
+function activity(since: number) {
+  return {
+    totals: { ...totals.get(since)!, ...sessions.get(since)! },
+    byProject: byProject.all(since),
+    byModel: byModel.all(since),
+    byAccount: byAccount.all(since),
+    byHour: byHour.all(since),
+  };
 }
 
 function requests(q: URLSearchParams) {
@@ -30,13 +75,15 @@ function requests(q: URLSearchParams) {
   else eq("project", q.get("project"));
   if (q.get("status") === "ok") where.push("status = 200");
   if (q.get("status") === "failed") where.push("status <> 200");
+  const filter = (extra: string[]) => (where.length + extra.length ? "WHERE " + [...where, ...extra].join(" AND ") : "");
+  // Totals cover every match; `before` only pages through them.
   const before = Number(q.get("before"));
-  if (before) where.push("ts < ?"), args.push(before);
-  const sql = `SELECT * FROM requests ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY ts DESC LIMIT 200`;
+  const page = before ? [`ts < ${before}`] : [];
   const facet = (col: string) =>
-    db.query<{ v: string }, []>(`SELECT DISTINCT ${col} AS v FROM requests WHERE ${col} IS NOT NULL ORDER BY v`).all().map((r) => r.v);
+    db.query<{ v: string }, []>(`SELECT DISTINCT ${col} AS v FROM requests WHERE ${col} IS NOT NULL ORDER BY v COLLATE NOCASE`).all().map((r) => r.v);
   return {
-    rows: db.query<RequestRow, (string | number)[]>(sql).all(...args),
+    rows: db.query<RequestRow, (string | number)[]>(`SELECT * FROM requests ${filter(page)} ORDER BY ts DESC LIMIT 200`).all(...args),
+    totals: db.query<Totals, (string | number)[]>(`SELECT ${SUMS} FROM requests ${filter([])}`).get(...args)!,
     facets: { account: facet("account"), project: facet("project"), model: facet("model") },
   };
 }
@@ -46,6 +93,7 @@ const FORM = {
   strategy: { path: ["routing", "strategy"], fallback: "round-robin" },
   affinity: { path: ["routing", "session-affinity"], fallback: false },
   affinityTtl: { path: ["routing", "session-affinity-ttl"], fallback: "1h" },
+  rebind: { path: ["routing", "session-affinity-rebind-on"], fallback: "any" },
   retry: { path: ["routing", "retry", "request-retry"], fallback: 3 },
 } as const;
 
@@ -70,11 +118,18 @@ const ok = { status: "ok" };
 const routes: [string, string, Handler][] = [
   ["GET", "/api/accounts", () => accounts()],
   ["GET", "/api/readings", async (req) => readingsSince.all(Number(new URL(req.url).searchParams.get("since") ?? 0))],
-  ["PATCH", "/api/accounts/:name", async (req, p) => {
+  ["PATCH", "/api/accounts/:id", async (req, p) => {
     const { disabled } = (await req.json()) as { disabled: boolean };
-    return json("PATCH", "/credentials/status", { name: p.name, disabled });
+    return json("PATCH", "/credentials/status", { name: p.id, disabled });
   }],
-  ["DELETE", "/api/accounts/:name", (_, p) => json("DELETE", "/credentials", { names: [p.name] })],
+  ["DELETE", "/api/accounts/:id", (_, p) => json("DELETE", "/credentials", { names: [p.id] })],
+  ["PUT", "/api/names/:email", async (req, p) => {
+    const { name } = (await req.json()) as { name: string };
+    if (!name.trim()) throw new AdminError(400, "a name can't be empty");
+    setName.run(p.email!, name.trim());
+    return ok;
+  }],
+  ["GET", "/api/activity", async (req) => activity(Number(new URL(req.url).searchParams.get("since") ?? 0))],
   ["POST", "/api/signin", () => json("GET", "/oauth/auth-url?provider=claude&is_webui=true")],
   ["GET", "/api/signin/:state", (_, p) => json("GET", `/oauth/status?state=${encodeURIComponent(p.state!)}`)],
   ["DELETE", "/api/signin/:state", (_, p) => json("DELETE", `/oauth/session?state=${encodeURIComponent(p.state!)}`)],
