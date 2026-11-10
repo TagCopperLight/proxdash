@@ -1,7 +1,7 @@
 // Every minute: account quota readings and the per-request usage queue, into SQLite.
 import { credentials, drainUsage, type UsageRecord } from "./admin";
-import { db, insertReading, insertRequest, prune, type Reading } from "./db";
-import { projectOf } from "./projects";
+import { db, insertReading, insertRequest, prune, RETENTION_MS, type Reading, type RequestRow } from "./db";
+import { projectOf, subagents } from "./transcripts";
 
 const INTERVAL_MS = 60_000;
 const PREFIX = "Anthropic-Ratelimit-Unified-";
@@ -39,6 +39,7 @@ export async function recordRequest(r: UsageRecord) {
     error: r.failed ? r.fail?.body.slice(0, 2000) || null : null,
     session_id: r.session_id || null,
     project: r.session_id ? await projectOf(r.session_id) : null,
+    parent: null,
   });
   const headers = r.response_headers;
   const rd = headers && reading(r.source, ts, (n) => headers[n]?.[0]);
@@ -49,6 +50,20 @@ const unresolved = db.query<{ id: string; session_id: string }, [number]>(
   "SELECT id, session_id FROM requests WHERE project IS NULL AND session_id IS NOT NULL AND ts > ?",
 );
 const setProject = db.query("UPDATE requests SET project = ? WHERE id = ?");
+// A failed request has no reply in any transcript.
+const unmatched = db.query<RequestRow, [number]>("SELECT * FROM requests WHERE parent IS NULL AND status = 200 AND ts > ?");
+// A subagent works for its parent's project.
+const setParent = db.query("UPDATE requests SET parent = ?, project = ? WHERE id = ?");
+/** Subagent replies reach their transcript within seconds; requests stay open to a match for this long. */
+const AGENT_LAG_MS = 10 * 60_000;
+
+async function matchAgents(since: number) {
+  const parentOf = await subagents(since);
+  for (const r of unmatched.all(since)) {
+    const parent = parentOf(r, r.ts);
+    if (parent) setParent.run(parent, await projectOf(parent), r.id);
+  }
+}
 
 export async function tick() {
   for (const c of await credentials()) {
@@ -63,11 +78,14 @@ export async function tick() {
     const p = await projectOf(session_id);
     if (p) setProject.run(p, id);
   }
+  await matchAgents(Date.now() - AGENT_LAG_MS);
   prune();
 }
 
 export function start() {
   const run = () => tick().catch((e) => console.error("recorder:", e.message ?? e));
+  // Requests recorded before subagents were told apart, or while the service was down.
+  matchAgents(Date.now() - RETENTION_MS).catch((e) => console.error("recorder:", e.message ?? e));
   run();
   setInterval(run, INTERVAL_MS);
 }

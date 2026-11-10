@@ -24,12 +24,10 @@ async function accounts() {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((c) => {
       const email = c.email ?? c.label ?? c.name;
-      const chosen = nameOf.get(email)?.name;
       return {
         id: c.name,
         email,
-        name: chosen ?? defaultName(email),
-        named: chosen !== undefined,
+        name: nameOf.get(email)?.name ?? defaultName(email),
         disabled: c.disabled,
         reading: (c.email && latestReading.get(c.email)) || null,
       };

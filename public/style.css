@@ -107,8 +107,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 36px 48px 80px; }
 .ok-t { color: var(--success); }
 .bad-t { color: var(--error); }
 
-/* Pool headline: the number and its split on the left, Aurora's LABEL ... value list on the right */
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 52ch); gap: 32px 8ch; align-items: end; }
+/* Pool headline: the number and its split, then Aurora's LABEL ... value list under it */
+.hero { display: grid; gap: 28px; }
 .big { font-size: 56px; line-height: 56px; letter-spacing: -0.02em; }
 .big small { font-size: 14px; line-height: var(--row); letter-spacing: 0; color: var(--text-disabled); margin-left: 1.5ch; text-transform: uppercase; }
 .split { display: flex; gap: 2px; height: 8px; margin-top: 22px; }
@@ -207,11 +207,15 @@ main { max-width: 1200px; margin: 0 auto; padding: 36px 48px 80px; }
 .sub-h .keys { margin: 0; color: var(--text); }
 
 /* Accounts page */
-.name-edit { background: none; border: 0; border-bottom: 1px solid var(--delimiter); color: var(--text); font: inherit; text-transform: uppercase; padding: 0; width: 18ch; outline: none; }
-.email { cursor: pointer; color: var(--text-disabled); transition: filter var(--fade); }
+/* Beats the generic input rule below, which is as specific */
+.who input.name-edit { width: 100%; min-width: 0; text-align: left; text-transform: uppercase; border-bottom-color: var(--delimiter); }
+/* The email clips itself: a clipping parent would cut the blur's soft edges square */
+.email { display: block; cursor: pointer; color: var(--text-disabled); transition: filter var(--fade); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rows > .c:has(> .email) { overflow: visible; }
 .email.blur { filter: blur(5px); }
 .danger { color: var(--gray); text-transform: uppercase; }
 .danger:hover { color: var(--error); }
+.danger.icon { display: flex; width: fit-content; margin-left: auto; }
 .icon { display: inline-flex; align-items: center; }
 .hint { color: var(--gray); }
 .rename { display: flex; align-items: center; gap: 1.4ch; min-width: 0; color: var(--text); }
@@ -251,13 +255,27 @@ textarea:focus { border-color: var(--gray); }
 .msg.dim { color: var(--text-disabled); }
 .msg.bad { color: var(--error); }
 
-/* Logs: filters read LABEL [ANY] A B, left to right, and wrap when long */
-.filters { margin-bottom: 20px; }
-.filters .kv { justify-content: flex-start; align-items: flex-start; min-height: 0; padding: 4px 0; }
-.filters .kv .k { width: 10ch; flex: none; color: var(--text-disabled); }
-.filters .kv .v { white-space: normal; }
-.filters .seg { flex-wrap: wrap; margin-left: -1ch; }
-.filters + .list { margin-bottom: 24px; }
+/* Dropdown: LABEL VALUE ⌄ in a section's tools; its options open as a column of the same bracketed choices */
+.drop { position: relative; }
+.drop-btn { display: flex; align-items: center; gap: 1ch; color: var(--text); text-transform: uppercase; white-space: nowrap; }
+.drop-btn .label { color: var(--delimiter); margin-right: 1ch; }
+/* As wide as the longest option, so picking one never moves the other dropdowns */
+.drop-btn .v { min-width: var(--w); text-align: left; }
+.drop-btn svg { width: 14px; height: 14px; color: var(--text-disabled); }
+.drop-btn:hover svg { color: var(--text); }
+.drop .menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 6;
+  max-height: 320px; overflow-y: auto; padding: 8px 0;
+  background: var(--bg); border: 1px solid var(--grid);
+}
+.drop .menu .seg { flex-direction: column; gap: 0; }
+.drop .menu .seg button, .drop .menu .seg button:last-child { padding: 2px 3ch; text-align: left; }
+
+/* Logs */
+.list.two + .scroll { margin-top: 24px; }
+.project { display: flex; align-items: center; gap: 1.5ch; min-width: 0; }
+.agent { display: flex; flex: none; }
+.agent svg { width: 13px; height: 13px; color: var(--purple); }
 .logs > .h { white-space: nowrap; }
 .logs > .c { padding-top: 6px; padding-bottom: 6px; }
 
@@ -274,7 +292,6 @@ textarea:focus { border-color: var(--gray); }
   .tools { gap: 2ch; }
   .tools > span { white-space: nowrap; }
   main { padding: 24px 24px 60px; }
-  .hero { grid-template-columns: 1fr; }
   /* A value too long for its label's line drops below it, starting flush left */
   .kv { flex-wrap: wrap; gap: 0 2ch; padding: 4px 0; }
   .kv .v { white-space: normal; flex-wrap: wrap; text-align: left; }
@@ -294,7 +311,8 @@ textarea:focus { border-color: var(--gray); }
   .rows .when { display: none; }
   .meter .track { min-width: 32px; }
   .section-head, .sub-h { flex-wrap: wrap; }
-  .filters .kv .k { width: 100%; }
+  .tools:has(.drop) { flex-wrap: wrap; gap: 8px 3ch; }
+  .tools .drop:nth-child(odd) .menu { right: auto; left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

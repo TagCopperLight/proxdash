@@ -22,8 +22,12 @@ db.run(`CREATE TABLE IF NOT EXISTS requests (
   input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL,
   latency_ms INTEGER NOT NULL, ttft_ms INTEGER,
   status INTEGER NOT NULL, error TEXT,
-  session_id TEXT, project TEXT
+  session_id TEXT, project TEXT,
+  parent TEXT                    -- for a subagent's request, the session that started the subagent
 )`);
+// Databases from before subagents were told apart lack the column.
+if (!db.query<{ name: string }, []>("PRAGMA table_info(requests)").all().some((c) => c.name === "parent"))
+  db.run("ALTER TABLE requests ADD COLUMN parent TEXT");
 db.run("CREATE INDEX IF NOT EXISTS requests_ts ON requests (ts)");
 // The proxy only knows accounts by email; the name shown everywhere is chosen here.
 db.run("CREATE TABLE IF NOT EXISTS names (account TEXT PRIMARY KEY, name TEXT NOT NULL)");
@@ -40,7 +44,7 @@ export type RequestRow = {
   id: string; ts: number; account: string; model: string;
   input: number; output: number; cache_read: number; cache_write: number;
   latency_ms: number; ttft_ms: number | null; status: number; error: string | null;
-  session_id: string | null; project: string | null;
+  session_id: string | null; project: string | null; parent: string | null;
 };
 
 export const insertReading = db.prepare<void, Reading>(
@@ -48,7 +52,7 @@ export const insertReading = db.prepare<void, Reading>(
 );
 export const insertRequest = db.prepare<void, RequestRow>(
   `INSERT OR IGNORE INTO requests VALUES ($id, $ts, $account, $model, $input, $output, $cache_read, $cache_write,
-   $latency_ms, $ttft_ms, $status, $error, $session_id, $project)`,
+   $latency_ms, $ttft_ms, $status, $error, $session_id, $project, $parent)`,
 );
 
 export function prune(now = Date.now()) {

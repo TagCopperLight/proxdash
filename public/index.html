@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>proxdash</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='4' fill='%2373bff9'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg viewBox=%220 0 24 24%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cpath d=%22M3.5 17a9 9 0 1 1 17 0%22 fill=%22none%22 stroke=%22%235a5a62%22 stroke-width=%222.6%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M3.5 17a9 9 0 0 1 9.5-11.9%22 fill=%22none%22 stroke=%22%2373bff9%22 stroke-width=%222.6%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M13 5.1a9 9 0 0 1 4.8 2.6%22 fill=%22none%22 stroke=%22%23f5ba60%22 stroke-width=%222.6%22 stroke-linecap=%22round%22/%3E%3Ccircle cx=%2212%22 cy=%2215%22 r=%222%22 fill=%22%23d9d9d9%22/%3E%3C/svg%3E">
   <link rel="preload" href="/fonts/Monaco.otf" as="font" type="font/otf" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="top">
     <a class="brand" href="#usage">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="10.5" ry="4.5" transform="rotate(-25 12 12)" fill="none" stroke="#5a5a62" stroke-width="1.4"/><circle cx="12" cy="12" r="4" fill="#73bff9"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17a9 9 0 1 1 17 0" fill="none" stroke="#5a5a62" stroke-width="2.6" stroke-linecap="round"/><path d="M3.5 17a9 9 0 0 1 9.5-11.9" fill="none" stroke="#73bff9" stroke-width="2.6" stroke-linecap="round"/><path d="M13 5.1a9 9 0 0 1 4.8 2.6" fill="none" stroke="#f5ba60" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="15" r="2" fill="#d9d9d9"/></svg>
       <span>PROXDASH</span>
     </a>
     <nav>
@@ -20,7 +20,7 @@
       <a href="#logs" data-page="logs"><svg class="i" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Logs</span></a>
       <a href="#config" data-page="config"><svg class="i" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Config</span></a>
     </nav>
-    <div class="link" title="CLIProxyAPI's admin API">Proxy <span id="pulse"></span></div>
+    <div class="link" id="pulse" title="CLIProxyAPI, the proxy this dashboard reads"></div>
   </header>
   <main id="page"></main>
   <div id="tooltip" class="tooltip" hidden></div>

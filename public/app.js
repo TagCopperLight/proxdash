@@ -5,6 +5,8 @@ const WINDOWS = { "7d": { ms: 7 * DAY, key: "7", name: "Week" }, "5h": { ms: 5 *
 /** How much of the chart is past and future, per window: enough future to see every account reset. */
 const VIEW = { "7d": { back: 3 * DAY, ahead: 7 * DAY }, "5h": { back: 5 * H, ahead: 10 * H } };
 const STALE_MS = 30 * 60_000;
+/** Chart heights, also reserved in the markup so a redraw never shortens the page and pulls the scroll up. */
+const POOL_H = 300, REQUESTS_H = 150;
 /** An account keeps its colour on every page; past the fourth, colours would stop being told apart. */
 const COLORS = ["var(--blue)", "var(--orange)", "var(--purple)", "var(--teal)"];
 const OTHER_COLOR = "var(--text-disabled)";
@@ -87,6 +89,21 @@ function onSeg(name, fn) {
     if (b && !b.classList.contains("on")) fn(b.dataset.v, el);
   }));
 }
+const CHEVRON = `<svg class="i" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>`;
+/** LABEL VALUE ⌄, opening the options as a column; the options are a seg, so onSeg handles the choice. */
+function drop(name, options, current, label) {
+  const shown = options.find(([v]) => v === current) ?? options[0];
+  return `<div class="drop"><button class="drop-btn" aria-haspopup="listbox"><span class="label">${label}</span>
+    <span class="v ${current ? "" : "dim"}" style="--w:${Math.max(...options.map(([, text]) => text.length))}ch">${esc(shown[1])}</span>${CHEVRON}</button><div class="menu" hidden>${seg(name, options, current)}</div></div>`;
+}
+const closeDrops = (except) => document.querySelectorAll(".drop .menu").forEach((m) => { if (m !== except) m.hidden = true; });
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".drop-btn");
+  const menu = btn?.nextElementSibling;
+  closeDrops(menu);
+  if (menu) menu.hidden = !menu.hidden;
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDrops(); });
 const segValue = (name) => $page.querySelector(`[data-seg="${name}"] button.on`)?.dataset.v;
 const section = (title, tools, body) =>
   `<section class="section"><div class="section-head"><h2>[${title}]</h2><div class="tools">${tools}</div></div>${body}</section>`;
@@ -106,12 +123,16 @@ const tipRow = (color, label, value, cls = "") => `<div class="r ${cls}">${color
 
 // ---------------------------------------------------------------- quota model
 
-/** Used fraction at time t from a reading: a reading whose reset has passed means a fresh window. */
+/**
+ * Used fraction at time t from a reading: a reading whose reset has passed means a fresh window.
+ * A window Anthropic refuses is used up, though its rounded utilization can still read 99%.
+ */
 function usedAt(rd, w, t) {
   const u = rd?.["u" + w.key];
   if (u == null) return 0;
   const r = rd["r" + w.key];
-  return r && t >= r ? 0 : u;
+  if (r && t >= r) return 0;
+  return rd["s" + w.key] === "rejected" ? 1 : u;
 }
 /** The next reset after t, rolling a passed reset forward by whole windows. */
 function nextReset(rd, w, t) {
@@ -160,9 +181,16 @@ function burnRate(readings, accounts, w, now, hours) {
   return { rate: covered > 0 ? used / (covered / H) : 0, covered };
 }
 
-/** Walks forward at the burn rate, spreading it over accounts that still have room, refilling at resets. */
+/**
+ * Walks forward at the burn rate, spreading it over accounts that still have room, refilling at resets.
+ * An account the other window shuts out (a spent 5h in the week view) takes nothing until that window refills.
+ */
 function project(latest, accounts, w, now, rate, horizon) {
-  const state = accounts.map((a) => ({ rem: 1 - usedAt(latest.get(a), w, now), reset: nextReset(latest.get(a), w, now), out: false }));
+  const state = accounts.map((a) => {
+    const rem = 1 - usedAt(latest.get(a), w, now);
+    // An account already empty is out now, not running out in the forecast.
+    return { rem, reset: nextReset(latest.get(a), w, now), out: rem <= 0, until: outUntil(latest.get(a), now) ?? now };
+  });
   const rems = () => state.map((x) => x.rem);
   const step = horizon / 400;
   const points = [[now, rems()]];
@@ -178,7 +206,7 @@ function project(latest, accounts, w, now, rate, horizon) {
       points.push([at, rems()]);
     }
     let burn = rate * (step / H);
-    let live = state.filter((x) => x.rem > 0);
+    let live = state.filter((x) => x.rem > 0 && t >= x.until);
     while (burn > 1e-9 && live.length) {
       const share = burn / live.length;
       burn = 0;
@@ -215,7 +243,7 @@ function timeTicks(from, to, width) {
 
 /** Forecast: each account's own line (0–100% of it) and the pool's sum, on one axis; recorded solid, projected dashed. */
 function poolChart(el, { colors, names, recorded, projected, refills, outs, poolOut, max, from, to, now, thin }) {
-  const W = el.clientWidth || 900, Hh = 300, m = { l: 48, r: 8, t: 34, b: 30 };
+  const W = el.clientWidth || 900, Hh = POOL_H, m = { l: 48, r: 8, t: 34, b: 30 };
   const plotR = W - m.r;
   const x = (t) => m.l + ((t - from) / (to - from)) * (W - m.l - m.r);
   const y = (v) => m.t + (1 - v / max) * (Hh - m.t - m.b);
@@ -293,7 +321,7 @@ function poolChart(el, { colors, names, recorded, projected, refills, outs, pool
 
 /** Requests per time bucket, stacked by account. */
 function requestChart(el, { buckets, bucketMs, colors, names, from, to }) {
-  const W = el.clientWidth || 900, Hh = 150, m = { l: 48, r: 8, t: 8, b: 30 };
+  const W = el.clientWidth || 900, Hh = REQUESTS_H, m = { l: 48, r: 8, t: 8, b: 30 };
   const peak = Math.max(1, ...buckets.map((b) => b.counts.reduce((s, v) => s + v, 0)));
   const unit = 10 ** Math.floor(Math.log10(peak));
   const top = Math.ceil(peak / unit) * unit;
@@ -344,6 +372,8 @@ function totalsList(t, extra = "") {
 
 const PENCIL = `<svg class="i" viewBox="0 0 24 24"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`;
 const PLUS = `<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`;
+const CHILD = `<svg class="i" viewBox="0 0 24 24"><path d="M5 4v6a4 4 0 0 0 4 4h11"/><path d="m15 9 5 5-5 5"/></svg>`;
+const BIN = `<svg class="i" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>`;
 const RESET = `<svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`;
 
 /** What's left of one window, red when nearly gone. */
@@ -359,12 +389,9 @@ function quota(rd, w, color, now) {
   return `<div class="meter"><div class="track"><i style="width:${Math.max(0, Math.min(1, rem)) * 100}%;--c:${color}"></i></div>${left(rd, w, now)}${reset}</div>`;
 }
 
-/** When an account that the proxy refuses (or that is used up) gets its quota back, or null when it is serving. */
+/** When a used-up account gets its quota back, or null when it is serving. */
 function outUntil(rd, now) {
-  for (const w of Object.values(WINDOWS)) {
-    const blocked = rd?.["s" + w.key] && rd["s" + w.key] !== "allowed";
-    if ((blocked || usedAt(rd, w, now) >= 1) && rd["r" + w.key] > now) return rd["r" + w.key];
-  }
+  for (const w of Object.values(WINDOWS)) if (usedAt(rd, w, now) >= 1 && rd["r" + w.key] > now) return rd["r" + w.key];
   return null;
 }
 const outFor = (until, now) => `<span class="bad-t nowrap" title="Back at ${esc(clock(until, now))}">[OUT ${span(until - now)}]</span>`;
@@ -383,9 +410,8 @@ const lastReading = (rd, now) =>
  * Cells get the account, its person and now.
  */
 const ACCOUNT_COLS = {
-  name: { head: "Account", w: "minmax(18ch,1fr)", s: "minmax(10ch,1fr)", cell: (a, p) => a.named ? who(p)
-    : `<span class="who">${dot(p.color)}<span class="ell">${esc(p.name)}</span><a class="icon hint" href="#accounts" title="Name this account">${PENCIL}</a></span>` },
-  email: { head: "Email", w: "minmax(20ch,1.2fr)", cell: (a) => `<span class="ell">${email(a.email)}</span>` },
+  name: { head: "Account", w: "minmax(18ch,1fr)", s: "minmax(10ch,1fr)", cell: (a, p) => who(p) },
+  email: { head: "Email", w: "minmax(20ch,1.2fr)", cell: (a) => email(a.email) },
   week: { head: "Week left", w: "minmax(28ch,1.6fr)", s: "auto", cell: (a, p, now) => quota(a.reading, WINDOWS["7d"], p.color, now) },
   five: { head: "5h left", w: "minmax(28ch,1.6fr)", s: "auto", cell: (a, p, now) => quota(a.reading, WINDOWS["5h"], p.color, now) },
   status: { head: "Status", w: "14ch", s: "auto", cell: (a, p, now) => status(a, now) },
@@ -469,7 +495,7 @@ async function usagePage() {
           <div class="split">${rems.map((r, i) => `<i style="flex:${Math.max(0.002, r)};--c:${colors[i]}" title="${esc(names[i])} ${pct(r)}"></i>`).join("")}<i class="used" style="flex:${Math.max(0.002, n - remaining)}"></i></div>
           <div class="lead"><span class="k">First empty</span><span class="v">${!rate ? idle : first ? named(first.i, guess(first.t)) : never}</span></div>
         </div>
-        <div class="list">
+        <div class="list two">
           ${out.map(([i, until]) => kv("Out now", named(i, outFor(until, now)))).join("")}
           ${kv("Pool empty", !rate ? idle : proj.poolOut ? guess(proj.poolOut) : never)}
           ${kv("Next reset", next ? named(next.i, `<span class="nowrap">${at(next.t)}</span>`) : none)}
@@ -478,7 +504,7 @@ async function usagePage() {
         </div>
       </div>`)}
     ${section("Forecast", `${seg("burn", [["1", "1h"], ["3", "3h"], ["6", "6h"]], String(burnH), "Pace over")}`, `
-      <div class="chart" id="chart"></div>
+      <div class="chart" id="chart" style="height:${POOL_H}px"></div>
       ${keys(["var(--text)", ...colors], ["Pool", ...names], `<span class="dim nowrap"><i class="dash"></i>Projected</span>${thin && rate ? `<span class="dim">~ Estimate from ${span(covered)} of data</span>` : ""}`)}`)}
     ${section("Accounts", "", rows(Object.values(ACCOUNT_COLS).filter((c) => c !== ACCOUNT_COLS.email), accs,
       (c, a) => c.cell(a, person(a.email), now), "accounts"))}
@@ -486,7 +512,7 @@ async function usagePage() {
       ${totalsList(t, kv("Conversations moved", t.sessions ? `${t.split} <span class="dim">OF ${t.sessions}</span>` : none, "",
         "Conversations served by more than one account, which loses their prompt cache"))}
       <div class="activity">
-        <div class="wide"><div class="sub-h"><span>Requests per ${actWin === "24h" ? "hour" : "6 hours"}</span>${keys(colors, names)}</div><div class="chart" id="requests"></div></div>
+        <div class="wide"><div class="sub-h"><span>Requests per ${actWin === "24h" ? "hour" : "6 hours"}</span>${keys(colors, names)}</div><div class="chart" id="requests" style="height:${REQUESTS_H}px"></div></div>
         <div><div class="sub-h">By project</div>${shares(act.byProject, projectName)}</div>
         <div><div class="sub-h">By model</div>${shares(act.byModel, modelName)}</div>
       </div>`)}`;
@@ -517,7 +543,7 @@ async function accountsPage() {
     ACCOUNT_COLS.status,
     { head: "Requests 24h", w: "14ch", r: true, cell: (a) => day.get(a.email) ?? `<span class="dim">0</span>` },
     { head: "In pool", w: "12ch", s: "auto", cell: (a) => seg(`on-${a.id}`, [["on", "On"], ["off", "Off"]], a.disabled ? "off" : "on") },
-    { head: "&nbsp;", w: "8ch", s: "auto", r: true, cell: (a) => `<button class="danger" data-remove="${esc(a.id)}">Remove</button>` },
+    { head: "&nbsp;", w: "4ch", s: "auto", r: true, cell: (a) => `<button class="danger icon" data-remove="${esc(a.id)}" title="Remove from the proxy">${BIN}</button>` },
   ];
   $page.innerHTML = `
     <div id="signin-box"></div>
@@ -601,13 +627,14 @@ async function logsPage() {
   const [first, accs] = await Promise.all([api("GET", `/requests?${q}`), api("GET", "/accounts")]);
   const person = people(accs);
   const list = [...first.rows];
-  const pick = (name, values, show) => kv(name, seg(`filter-${name}`, [["", "Any"], ...values.map((v) => [v, show(v)])], logFilter[name] ?? ""));
+  const pick = (name, values, show) => drop(`filter-${name}`, [["", "Any"], ...values.map((v) => [v, show(v)])], logFilter[name] ?? "", name);
   const today = Date.now();
   const dayLabel = (ts) => sameDay(ts, today) ? "Today" : sameDay(ts, today - DAY) ? "Yesterday"
     : new Date(ts).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const cols = [
     { head: "Time", w: "8ch", s: "6ch", cell: (r) => `<span class="dim" title="${esc(new Date(r.ts).toLocaleString("en-GB"))}">${hm(r.ts)}</span>` },
-    { head: "Project", w: "minmax(12ch,1fr)", s: "minmax(8ch,1fr)", cell: (r) => `<span class="ell up ${r.project ? "" : "dim"}">${esc(projectName(r.project))}</span>` },
+    { head: "Project", w: "minmax(12ch,1fr)", s: "minmax(8ch,1fr)", cell: (r) => `<span class="project"><span class="ell up ${r.project ? "" : "dim"}">${esc(projectName(r.project))}</span>${r.parent
+      ? `<span class="agent" title="Made by a subagent">${CHILD}</span>` : ""}</span>` },
     { head: "Account", w: "minmax(12ch,1fr)", s: "auto", cell: (r) => who(person(r.account)) },
     { head: "Model", w: "13ch", cell: (r) => `<span class="up">${esc(modelName(r.model))}</span>` },
     { head: "Tokens in", w: "11ch", r: true, cell: (r) => kfmt(tokensIn(r)) },
@@ -629,11 +656,11 @@ async function logsPage() {
     return rows(cols, withDays, (c, r) => c.cell(r), "logs");
   };
 
-  $page.innerHTML = section("Requests", "", `<div class="list filters">
+  $page.innerHTML = section("Requests", `
       ${pick("account", [...accs.map((a) => a.email).filter((e) => first.facets.account.includes(e)), ...first.facets.account.filter((e) => !accs.some((a) => a.email === e))], (e) => person(e).name)}
       ${pick("project", ["(none)", ...first.facets.project], (p) => (p === "(none)" ? "No project" : p))}
       ${pick("model", first.facets.model, modelName)}
-      ${pick("status", ["ok", "failed"], (s) => s)}</div>
+      ${pick("status", ["ok", "failed"], (s) => s)}`, `
     ${totalsList(first.totals)}
     <div class="scroll" id="logs">${list.length ? logRows(list) : `<div class="empty-note">No requests match</div>`}</div>
     ${list.length === 200 ? `<button class="more" id="more">Load older ↓</button>` : ""}`);
@@ -650,7 +677,6 @@ async function logsPage() {
 
 // ---------------------------------------------------------------- config
 
-const CHILD = `<svg class="i" viewBox="0 0 24 24"><path d="M5 4v6a4 4 0 0 0 4 4h11"/><path d="m15 9 5 5-5 5"/></svg>`;
 
 async function configPage() {
   const tab = pref.get("configTab", "form");
@@ -700,6 +726,7 @@ async function configPage() {
       await render();
       const m = document.getElementById("msg");
       m.textContent = "Saved"; m.className = "msg ok";
+      setTimeout(() => { if (m.textContent === "Saved") m.textContent = ""; }, 1000);
     } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; }
   });
 }
@@ -723,11 +750,19 @@ async function render() {
 }
 function setPulse(ok) {
   const el = document.getElementById("pulse");
-  el.textContent = ok ? "Up" : "[Down]";
-  el.className = ok ? "" : "bad-t";
+  el.textContent = ok ? "[Up]" : "[Down]";
+  el.className = `link ${ok ? "ok-t" : "bad-t"}`;
 }
 
-addEventListener("hashchange", render);
+// A page opens at its top; its own link, clicked again, reloads it there.
+const open = async () => { await render(); scrollTo(0, 0); };
+addEventListener("hashchange", open);
+document.querySelector(".top").addEventListener("click", (ev) => {
+  const a = ev.target.closest("a[href^='#']");
+  if (!a || a.getAttribute("href") !== (location.hash || "#usage")) return;
+  ev.preventDefault();
+  open();
+});
 addEventListener("resize", () => redraw?.());
 // Usage refreshes on its own; the other pages hold forms or scroll positions.
 setInterval(() => { if (!document.hidden && (location.hash || "#usage") === "#usage") render(); }, 60_000);
