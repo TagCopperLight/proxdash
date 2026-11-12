@@ -197,7 +197,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 36px 48px 80px; }
 /* Activity */
 .activity { display: grid; grid-template-columns: 1fr 1fr; gap: 36px 8ch; margin-top: 32px; }
 .activity .wide { grid-column: 1 / -1; }
-.share { display: grid; grid-template-columns: 16ch 1fr 5ch; column-gap: 2ch; align-items: center; }
+.share { display: grid; grid-template-columns: 16ch 1fr 5ch 6ch; column-gap: 2ch; align-items: center; }
 .share .track { height: 4px; border-radius: 2px; background: var(--grid); }
 .share .track i { display: block; height: 100%; border-radius: 2px; background: var(--text-disabled); }
 .share > .name, .share > .num { padding: 3px 0; }

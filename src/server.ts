@@ -38,11 +38,12 @@ type Totals = { requests: number; failed: number; input: number; output: number;
 // SUM over no rows is NULL; totals of an empty range are zeros.
 const SUMS = `COUNT(*) AS requests, COALESCE(SUM(status <> 200), 0) AS failed, COALESCE(SUM(input), 0) AS input,
   COALESCE(SUM(output), 0) AS output, COALESCE(SUM(cache_read), 0) AS cache_read, COALESCE(SUM(cache_write), 0) AS cache_write`;
+const BY_TOKENS = "SUM(input + output + cache_read + cache_write) DESC";
 const totals = db.query<Totals, [number]>(`SELECT ${SUMS} FROM requests WHERE ts >= ?`);
 const byProject = db.query<Totals & { key: string | null }, [number]>(
-  `SELECT project AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY project ORDER BY requests DESC`);
+  `SELECT project AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY project ORDER BY ${BY_TOKENS}`);
 const byModel = db.query<Totals & { key: string }, [number]>(
-  `SELECT model AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY model ORDER BY requests DESC`);
+  `SELECT model AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY model ORDER BY ${BY_TOKENS}`);
 const byAccount = db.query<Totals & { key: string }, [number]>(
   `SELECT account AS key, ${SUMS} FROM requests WHERE ts >= ? GROUP BY account`);
 const byHour = db.query<{ hour: number; account: string; requests: number }, [number]>(

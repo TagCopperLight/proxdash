@@ -34,9 +34,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(
 const pct = (f) => `${Math.round(f * 100)}%`;
 /** Rates are small: keep one decimal under 10%. */
 const pct1 = (f) => (f * 100 < 10 ? `${(f * 100).toFixed(1)}%` : pct(f));
-const kfmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+const kfmt = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1e3) + "k" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
 /** Every input token a request sent, whether the prompt cache served it or not. */
 const tokensIn = (t) => t.input + t.cache_read + t.cache_write;
+const tokensAll = (t) => tokensIn(t) + t.output;
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const hm = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const weekday = (ts) => new Date(ts).toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase();
@@ -481,9 +482,10 @@ async function usagePage() {
     if (b && i >= 0) b.counts[i] += h.requests;
   }
   const shares = (list, label) => {
-    const top = Math.max(1, ...list.map((r) => r.requests));
+    const top = Math.max(1, ...list.map(tokensAll));
     return list.length ? `<div class="share">${list.slice(0, 6).map((r) => `<span class="name ${r.key ? "" : "dim"}">${esc(label(r.key))}</span>
-      <span class="track"><i style="width:${(r.requests / top) * 100}%"></i></span><span class="num">${r.requests}</span>`).join("")}</div>`
+      <span class="track"><i style="width:${(tokensAll(r) / top) * 100}%"></i></span>
+      <span class="num dim" title="Requests">${r.requests}</span><span class="num" title="Tokens in and out, cache included">${kfmt(tokensAll(r))}</span>`).join("")}</div>`
       : `<div class="empty-note">No requests</div>`;
   };
 
