@@ -41,6 +41,7 @@ const tokensAll = (t) => tokensIn(t) + t.output;
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const hm = (ts) => new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const weekday = (ts) => new Date(ts).toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase();
+const date = (ts) => `${weekday(ts)} ${new Date(ts).getDate()} ${new Date(ts).toLocaleDateString("en-GB", { month: "short" }).toUpperCase()} ${hm(ts)}`;
 /** Today's times need no day; others get their weekday. */
 const clock = (ts, now = Date.now()) => (sameDay(ts, now) ? hm(ts) : `${weekday(ts)} ${hm(ts)}`);
 
@@ -420,20 +421,102 @@ const ACCOUNT_COLS = {
 };
 
 /**
- * Grid rows with one header; columns are { head, w, s, r, cell } and `cell` builds the html from each item.
- * An item `{ divider }` is a full-width row instead.
+ * Grid rows with one header; columns are { head, w, s, r, cls, cell } and `cell` builds the html from each item.
+ * An item `{ divider }` is a full-width row of that html instead.
  */
 function rows(cols, items, cell, cls = "") {
   const end = (i) => (i === cols.length - 1 ? "end" : "");
   const hide = (c) => (c.s ? "" : "hide-s");
-  const head = cols.map((c, i) => `<div class="h ${c.r ? "r" : ""} ${end(i)} ${hide(c)}">${c.head}</div>`).join("");
-  const body = items.map((it, k) => it.divider ? `<div class="divider">${esc(it.divider)}</div>` : cols.map((c, i) =>
-    `<div class="c ${c.r ? "r" : ""} ${end(i)} ${hide(c)} ${k === items.length - 1 ? "last" : ""}">${cell(c, it)}</div>`).join("")).join("");
+  const head = cols.map((c, i) => `<div class="h ${c.r ? "r" : ""} ${end(i)} ${hide(c)} ${c.cls ?? ""}">${c.head}</div>`).join("");
+  const body = items.map((it, k) => it.divider ? `<div class="divider">${it.divider}</div>` : cols.map((c, i) =>
+    `<div class="c ${c.r ? "r" : ""} ${end(i)} ${hide(c)} ${c.cls ?? ""} ${k === items.length - 1 ? "last" : ""}">${cell(c, it)}</div>`).join("")).join("");
   const style = `--cols:${cols.map((c) => c.w).join(" ")};--cols-s:${cols.filter((c) => c.s).map((c) => c.s).join(" ")}`;
   return `<div class="rows ${cls}" style="${style}">${head}${body}</div>`;
 }
 
+// ---------------------------------------------------------------- resets
+
+/** Anthropic's keys for the limits a reset clears; the weekly limit kept for one model is named after it. */
+function limitName(key, scoped) {
+  if (key === "five_hour") return WINDOWS["5h"].name;
+  if (key === "seven_day") return WINDOWS["7d"].name;
+  if (key === "seven_day_overage_included" && scoped) return `${scoped} week`;
+  return key;
+}
+/** A reset is named by what it clears: the week makes it full, anything less lists its limits. */
+const resetName = (g, scoped) => (g.clears.includes("seven_day") ? "Full reset" : `${g.clears.map((k) => limitName(k, scoped)).join(" + ")} reset`);
+const INELIGIBLE = { surface: "Only Claude Code is offered resets", cli_version: "Claude Code is too old for resets" };
+/** Anthropic's reason codes, readable as they are: not_at_limit → NOT AT LIMIT. */
+const words = (code) => code.replaceAll("_", " ").toUpperCase();
+/** The order limits take in "Gives back", shortest window first; anything new goes after. */
+const LIMIT_ORDER = ["five_hour", "seven_day", "seven_day_overage_included"];
+const endOf = (g) => (g.ends_at ? Date.parse(g.ends_at) : Infinity);
+
+/** Why one account can't spend this grant now, or null when it can. */
+function blocker(g, acc, now) {
+  const dim = (text, title = "") => `<span class="dim nowrap"${title ? ` title="${esc(title)}"` : ""}>[${esc(text)}]</span>`;
+  if (!g.resets_left) return dim("USED");
+  if (endOf(g) <= now) return dim("EXPIRED");
+  const cooldown = acc.cooldown_until ? Date.parse(acc.cooldown_until) : 0;
+  if (cooldown > now) return dim(`COOLDOWN ${span(cooldown - now)}`, `Resets wait until ${clock(cooldown, now)}`);
+  if (g.starts_at && Date.parse(g.starts_at) > now) return dim(`FROM ${clock(Date.parse(g.starts_at), now)}`);
+  if (g.paused) return dim("PAUSED");
+  if (!g.usable_now) return dim(g.unavailable_reason ? words(g.unavailable_reason) : "UNAVAILABLE");
+  return null;
+}
+const ready = (g, acc) => (acc.next_grant_id === g.id ? `<span class="nowrap" title="Claude Code spends this one first">READY <span class="dim">· NEXT</span></span>` : "READY");
+
+/** Each reset type with the accounts holding it, then the accounts Anthropic shows no resets for. */
+function resetsSection(list, person, now) {
+  if (list.error) return section("Resets", "", `<div class="err">${esc(list.error)}</div>`);
+  const issues = list.filter((a) => a.error || !a.eligible).map((a) => kv(who(person(a.email)), a.error
+    ? `<span class="bad-t ell" title="${esc(a.error)}">${esc(a.error)}</span>`
+    : `<span class="dim">${esc(INELIGIBLE[a.ineligible_reason] ?? `Not offered: ${words(a.ineligible_reason)}`).toUpperCase()}</span>`)).join("");
+  const types = new Map();
+  for (const acc of list) if (!acc.error && acc.eligible) for (const g of acc.grants) {
+    if (!types.has(g.id)) types.set(g.id, { g, holders: [] });
+    types.get(g.id).holders.push({ acc, g });
+  }
+  const groups = [...types.values()].sort((a, b) => endOf(a.g) - endOf(b.g));
+  const count = (g) => `<span class="nowrap ${g.resets_left ? "" : "dim"}">${g.resets_left} <span class="dim">OF ${g.resets_total}</span></span>`;
+  // Each limit keeps one slot across every row, empty where a reset doesn't clear it, so the same limit lines up down the list.
+  // Every account names its one-model weekly limit the same way.
+  const scoped = list.find((a) => a.scoped)?.scoped;
+  const rank = (k) => (LIMIT_ORDER.includes(k) ? LIMIT_ORDER.indexOf(k) : LIMIT_ORDER.length);
+  const slots = [...new Set(groups.flatMap((t) => t.g.clears))].sort((a, b) => rank(a) - rank(b));
+  const slotCols = slots.map((k) => `${limitName(k, scoped).length + 6}ch`).join(" ");
+  const usable = groups.reduce((n, t) => n + t.holders.reduce((m, h) => m + (blocker(h.g, h.acc, now) ? 0 : h.g.resets_left), 0), 0);
+  const cols = [
+    { ...ACCOUNT_COLS.name, cell: ({ acc }) => who(person(acc.email)) },
+    { head: "Left", w: "9ch", cell: ({ g }) => count(g) },
+    { head: "Gives back", w: "minmax(24ch,2fr)", s: "auto", cls: "gives-col", cell: ({ g }) => `<span class="gives" style="--slots:${slotCols}"><span class="phone-only">${count(g)}</span>${slots.map((k) => {
+      if (!g.clears.includes(k)) return `<span class="slot-empty"></span>`;
+      const used = g.percent_used[k];
+      return `<span class="nowrap ${g.resets_left && used ? "" : "dim"}"><span class="dim">${esc(limitName(k, scoped)).toUpperCase()}</span> ${used == null ? "—" : `+${used}%`}</span>`;
+    }).join("")}</span>` },
+    { head: "Status", w: "24ch", s: "auto", r: true, cell: ({ acc, g }) => blocker(g, acc, now) ?? ready(g, acc) },
+  ];
+  const expiryText = (ends) => ends === Infinity ? "NO END" : ends <= now ? "EXPIRED" : `EXPIRES ${date(ends)} IN ${span(ends - now)}`;
+  // Expiries start at one column, as wide as the longest, so they line up from group to group.
+  const expiryW = Math.max(...groups.map((t) => expiryText(endOf(t.g)).length));
+  const items = groups.flatMap(({ g, holders }) => {
+    const ends = endOf(g);
+    const unspent = holders.some((h) => h.g.resets_left);
+    const expiry = ends === Infinity || ends <= now ? `<span class="dim">${expiryText(ends)}</span>`
+      : `<span class="nowrap ${unspent && ends - now < 2 * DAY ? "bad-t" : ""}" title="Unspent resets are lost then">EXPIRES ${esc(date(ends))} <span class="dim">IN ${span(ends - now)}</span></span>`;
+    return [
+      { divider: `<div class="reset-head" style="--expiry:${expiryW}ch"><span title="${esc(g.label)}">${esc(resetName(g, scoped))}</span>${expiry}</div><div class="reset-label dim">${esc(g.label)}</div>` },
+      ...holders,
+    ];
+  });
+  return section("Resets", groups.length ? `<span class="dim nowrap" title="Resets an account can spend right now">${usable} READY</span>` : "", `
+    ${groups.length ? rows(cols, items, (c, it) => c.cell(it), "accounts resets") : issues ? "" : `<div class="empty-note">No resets granted</div>`}
+    ${issues ? `<div class="list">${issues}</div>` : ""}`);
+}
+
 // ---------------------------------------------------------------- usage
+
+let resetsHtml = section("Resets", "", `<div class="empty-note">Asking Anthropic</div>`);
 
 async function usagePage() {
   const win = pref.get("window", "7d"), burnH = Number(pref.get("burn", "3")), actWin = pref.get("activity", "24h");
@@ -517,13 +600,20 @@ async function usagePage() {
         <div class="wide"><div class="sub-h"><span>Requests per ${actWin === "24h" ? "hour" : "6 hours"}</span>${keys(colors, names)}</div><div class="chart" id="requests" style="height:${REQUESTS_H}px"></div></div>
         <div><div class="sub-h">By project</div>${shares(act.byProject, projectName)}</div>
         <div><div class="sub-h">By model</div>${shares(act.byModel, modelName)}</div>
-      </div>`)}`;
+      </div>`)}
+    <div id="resets">${resetsHtml}</div>`;
 
   const draw = () => {
     poolChart(document.getElementById("chart"), { colors, names, recorded, projected: proj.points, refills: proj.refills, outs: proj.outs, poolOut: proj.poolOut, max: n, from, to: now + view.ahead, now, thin });
     requestChart(document.getElementById("requests"), { buckets, bucketMs, colors, names, from: start, to: buckets.at(-1).t + bucketMs });
   };
   draw();
+  // Resets come from Anthropic's site, which can be slow or down: the page doesn't wait for them, and shows the last ones meanwhile.
+  api("GET", "/resets").catch((e) => ({ error: e.message })).then((list) => {
+    resetsHtml = resetsSection(list, person, Date.now());
+    const el = document.getElementById("resets");
+    if (el) el.innerHTML = resetsHtml;
+  });
   onSeg("window", (v) => { pref.set("window", v); render(); });
   onSeg("burn", (v) => { pref.set("burn", v); render(); });
   onSeg("activity", (v) => { pref.set("activity", v); render(); });
@@ -651,7 +741,7 @@ async function logsPage() {
     let lastDay = null;
     const withDays = items.flatMap((r) => {
       const day = dayLabel(r.ts);
-      const out = day !== lastDay ? [{ divider: day }, r] : [r];
+      const out = day !== lastDay ? [{ divider: esc(day) }, r] : [r];
       lastDay = day;
       return out;
     });

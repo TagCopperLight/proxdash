@@ -87,6 +87,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 36px 48px 80px; }
 
 /* [SECTION] with its controls on the same line; the bracket hangs in the margin */
 .section + .section { margin-top: var(--section); }
+/* Resets fill in after the page, inside their own box: the box takes the gap a section would */
+#resets { margin-top: var(--section); }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 2ch; margin-bottom: 14px; min-height: 32px; }
 .section-head h2 { margin-left: -1ch; color: var(--text-secondary); text-transform: uppercase; }
 .tools { display: flex; align-items: center; gap: 4ch; text-transform: uppercase; }
@@ -193,6 +195,13 @@ main { max-width: 1200px; margin: 0 auto; padding: 36px 48px 80px; }
 .meter .n { width: 4ch; text-align: right; }
 .meter .when { display: flex; align-items: center; gap: 0.8ch; width: 12ch; color: var(--text-disabled); }
 .meter .when svg { width: 12px; height: 12px; }
+
+/* Resets: a type's name and expiry over the accounts holding it */
+.reset-head { display: grid; grid-template-columns: 1fr var(--expiry); gap: 4px 2ch; }
+.phone-only { display: none; }
+.reset-label { text-transform: none; padding-top: 2px; }
+.gives { display: grid; grid-template-columns: var(--slots); column-gap: 3ch; }
+.resets + .list { margin-top: 20px; }
 
 /* Activity */
 .activity { display: grid; grid-template-columns: 1fr 1fr; gap: 36px 8ch; margin-top: 32px; }
@@ -308,6 +317,17 @@ textarea:focus { border-color: var(--gray); }
   .big { font-size: 44px; line-height: 44px; }
   .rows, .logs { grid-template-columns: var(--cols-s); min-width: 0; }
   .hide-s { display: none; }
+  .reset-label { display: none; }
+  /* What a reset gives back takes its own line under the account; dense flow puts the state back beside the name */
+  .rows.resets { grid-template-columns: minmax(0, 1fr) auto; grid-auto-flow: row dense; }
+  .resets > .h.gives-col { display: none; }
+  .resets > .c { border-bottom: 0; padding-bottom: 0; }
+  .resets > .c.gives-col { grid-column: 1 / -1; padding: 2px 0 10px calc(8px + 1.4ch); border-bottom: 1px solid var(--rule); }
+  .resets > .c.gives-col.last { border-bottom: 0; }
+  .reset-head { grid-template-columns: 1fr; }
+  .gives { display: flex; flex-wrap: wrap; gap: 0 2ch; }
+  .gives .slot-empty { display: none; }
+  .gives .phone-only { display: inline; }
   .rows .when { display: none; }
   .meter .track { min-width: 32px; }
   .section-head, .sub-h { flex-wrap: wrap; }

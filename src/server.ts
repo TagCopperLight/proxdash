@@ -2,6 +2,7 @@ import { parseDocument } from "yaml";
 import { AdminError, call, credentials, json } from "./admin";
 import { db, type Reading, type RequestRow } from "./db";
 import { start } from "./recorder";
+import { resets } from "./resets";
 
 const PORT = Number(process.env.PROXDASH_PORT ?? 8318);
 const PUBLIC = `${import.meta.dir}/../public`;
@@ -116,6 +117,7 @@ type Handler = (req: Request, params: Record<string, string>) => Promise<unknown
 const ok = { status: "ok" };
 const routes: [string, string, Handler][] = [
   ["GET", "/api/accounts", () => accounts()],
+  ["GET", "/api/resets", () => resets()],
   ["GET", "/api/readings", async (req) => readingsSince.all(Number(new URL(req.url).searchParams.get("since") ?? 0))],
   ["PATCH", "/api/accounts/:id", async (req, p) => {
     const { disabled } = (await req.json()) as { disabled: boolean };
