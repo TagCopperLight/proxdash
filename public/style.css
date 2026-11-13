@@ -225,6 +225,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 36px 48px 80px; }
 .danger { color: var(--gray); text-transform: uppercase; }
 .danger:hover { color: var(--error); }
 .danger.icon { display: flex; width: fit-content; margin-left: auto; }
+.row-actions { display: flex; justify-content: flex-end; gap: 2ch; }
+.row-actions .danger.icon { margin-left: 0; }
 .icon { display: inline-flex; align-items: center; }
 .hint { color: var(--gray); }
 .rename { display: flex; align-items: center; gap: 1.4ch; min-width: 0; color: var(--text); }

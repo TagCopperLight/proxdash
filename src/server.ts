@@ -2,7 +2,7 @@ import { parseDocument } from "yaml";
 import { AdminError, call, credentials, json } from "./admin";
 import { db, type Reading, type RequestRow } from "./db";
 import { start } from "./recorder";
-import { resets } from "./resets";
+import { refresh, resets } from "./resets";
 
 const PORT = Number(process.env.PROXDASH_PORT ?? 8318);
 const PUBLIC = `${import.meta.dir}/../public`;
@@ -123,6 +123,7 @@ const routes: [string, string, Handler][] = [
     const { disabled } = (await req.json()) as { disabled: boolean };
     return json("PATCH", "/credentials/status", { name: p.id, disabled });
   }],
+  ["POST", "/api/accounts/:id/refresh", async (_, p) => (await refresh(p.id!), ok)],
   ["DELETE", "/api/accounts/:id", (_, p) => json("DELETE", "/credentials", { names: [p.id] })],
   ["PUT", "/api/names/:email", async (req, p) => {
     const { name } = (await req.json()) as { name: string };

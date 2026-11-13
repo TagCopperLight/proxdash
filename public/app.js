@@ -376,6 +376,7 @@ const PENCIL = `<svg class="i" viewBox="0 0 24 24"><path d="M17 3a2.85 2.85 0 1 
 const PLUS = `<svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`;
 const CHILD = `<svg class="i" viewBox="0 0 24 24"><path d="M5 4v6a4 4 0 0 0 4 4h11"/><path d="m15 9 5 5-5 5"/></svg>`;
 const BIN = `<svg class="i" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>`;
+const REFRESH = `<svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>`;
 const RESET = `<svg class="i" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`;
 
 /** What's left of one window, red when nearly gone. */
@@ -635,7 +636,7 @@ async function accountsPage() {
     ACCOUNT_COLS.status,
     { head: "Requests 24h", w: "14ch", r: true, cell: (a) => day.get(a.email) ?? `<span class="dim">0</span>` },
     { head: "In pool", w: "12ch", s: "auto", cell: (a) => seg(`on-${a.id}`, [["on", "On"], ["off", "Off"]], a.disabled ? "off" : "on") },
-    { head: "&nbsp;", w: "4ch", s: "auto", r: true, cell: (a) => `<button class="danger icon" data-remove="${esc(a.id)}" title="Remove from the proxy">${BIN}</button>` },
+    { head: "&nbsp;", w: "8ch", s: "auto", r: true, cell: (a) => `<span class="row-actions"><button class="icon" data-refresh="${esc(a.id)}" title="Ask Anthropic for this account's usage now">${REFRESH}</button><button class="danger icon" data-remove="${esc(a.id)}" title="Remove from the proxy">${BIN}</button></span>` },
   ];
   $page.innerHTML = `
     <div id="signin-box"></div>
@@ -663,6 +664,12 @@ async function accountsPage() {
       try { await api("PATCH", `/accounts/${encodeURIComponent(a.id)}`, { disabled: v === "off" }); } catch (e) { alert(e.message); }
       render();
     });
+  $page.querySelectorAll("[data-refresh]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      el.disabled = true;
+      try { await api("POST", `/accounts/${encodeURIComponent(el.dataset.refresh)}/refresh`); } catch (e) { alert(e.message); }
+      render();
+    }));
   $page.querySelectorAll("[data-remove]").forEach((el) =>
     el.addEventListener("click", async () => {
       if (!confirm("Remove this account from the proxy? Its sign-in file is deleted; you would need to sign in again.")) return;
