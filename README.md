@@ -48,3 +48,5 @@ It expects CLIProxyAPI on `127.0.0.1:8317` with its management key in
 
 `PROXDASH_TRANSCRIPTS` is the `projects` folder of the Claude Code config
 directory the proxied sessions use (`~/.claude/projects` by default).
+Where that folder is missing, as on a server that runs no Claude Code session,
+proxdash hides projects and subagent marks and shows everything else.

@@ -3,6 +3,7 @@ import { AdminError, call, credentials, json } from "./admin";
 import { db, type Reading, type RequestRow } from "./db";
 import { start } from "./recorder";
 import { refresh, resets } from "./resets";
+import { hasTranscripts } from "./transcripts";
 
 const PORT = Number(process.env.PROXDASH_PORT ?? 8318);
 const PUBLIC = `${import.meta.dir}/../public`;
@@ -56,9 +57,11 @@ const sessions = db.query<{ sessions: number; split: number }, [number]>(
    FROM (SELECT COUNT(DISTINCT account) AS accounts FROM requests WHERE ts >= ? AND session_id IS NOT NULL GROUP BY session_id)`);
 
 function activity(since: number) {
+  const projects = hasTranscripts();
   return {
+    projects,
     totals: { ...totals.get(since)!, ...sessions.get(since)! },
-    byProject: byProject.all(since),
+    byProject: projects ? byProject.all(since) : [],
     byModel: byModel.all(since),
     byAccount: byAccount.all(since),
     byHour: byHour.all(since),
@@ -66,6 +69,7 @@ function activity(since: number) {
 }
 
 function requests(q: URLSearchParams) {
+  const projects = hasTranscripts();
   const where: string[] = [];
   const args: (string | number)[] = [];
   const eq = (col: string, v: string | null) => v && (where.push(`${col} = ?`), args.push(v));
@@ -82,9 +86,10 @@ function requests(q: URLSearchParams) {
   const facet = (col: string) =>
     db.query<{ v: string }, []>(`SELECT DISTINCT ${col} AS v FROM requests WHERE ${col} IS NOT NULL ORDER BY v COLLATE NOCASE`).all().map((r) => r.v);
   return {
+    projects,
     rows: db.query<RequestRow, (string | number)[]>(`SELECT * FROM requests ${filter(page)} ORDER BY ts DESC LIMIT 200`).all(...args),
     totals: db.query<Totals, (string | number)[]>(`SELECT ${SUMS} FROM requests ${filter([])}`).get(...args)!,
-    facets: { account: facet("account"), project: facet("project"), model: facet("model") },
+    facets: { account: facet("account"), project: projects ? facet("project") : [], model: facet("model") },
   };
 }
 

@@ -620,7 +620,7 @@ async function usagePage() {
         "Conversations served by more than one account, which loses their prompt cache"))}
       <div class="activity">
         <div class="wide"><div class="sub-h"><span>Requests per ${actWin === "24h" ? "hour" : "6 hours"}</span>${keys(colors, names)}</div><div class="chart" id="requests" style="height:${REQUESTS_H}px"></div></div>
-        <div><div class="sub-h">By project</div>${shares(act.byProject, projectName)}</div>
+        ${act.projects ? `<div><div class="sub-h">By project</div>${shares(act.byProject, projectName)}</div>` : ""}
         <div><div class="sub-h">By model</div>${shares(act.byModel, modelName)}</div>
       </div>`)}
     <div id="resets">${resetsHtml}</div>`;
@@ -752,7 +752,7 @@ async function logsPage() {
     : new Date(ts).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
   const cols = [
     { head: "Time", w: "8ch", s: "6ch", cell: (r) => `<span class="dim" title="${esc(new Date(r.ts).toLocaleString("en-GB"))}">${hm(r.ts)}</span>` },
-    { head: "Project", w: "minmax(12ch,1fr)", s: "minmax(8ch,1fr)", cell: (r) => `<span class="project"><span class="ell up ${r.project ? "" : "dim"}">${esc(projectName(r.project))}</span>${r.parent
+    first.projects && { head: "Project", w: "minmax(12ch,1fr)", s: "minmax(8ch,1fr)", cell: (r) => `<span class="project"><span class="ell up ${r.project ? "" : "dim"}">${esc(projectName(r.project))}</span>${r.parent
       ? `<span class="agent" title="Made by a subagent">${CHILD}</span>` : ""}</span>` },
     { head: "Account", w: "minmax(12ch,1fr)", s: "auto", cell: (r) => who(person(r.account)) },
     { head: "Model", w: "13ch", cell: (r) => `<span class="up">${esc(modelName(r.model))}</span>` },
@@ -762,7 +762,7 @@ async function logsPage() {
     { head: "Duration", w: "10ch", r: true, cell: (r) => `${(r.latency_ms / 1000).toFixed(1)}s` },
     { head: "Status", w: "14ch", s: "auto", r: true, cell: (r) => r.status === 200 ? `<span class="dim">OK</span>`
       : `<span class="bad-t" title="${esc(r.error)}">[${r.status ? `${r.status} ${failure(r.status)}` : "No reply"}]</span>` },
-  ];
+  ].filter(Boolean);
   // A day row wherever the date changes.
   const logRows = (items) => {
     let lastDay = null;
@@ -777,7 +777,7 @@ async function logsPage() {
 
   $page.innerHTML = section("Requests", `
       ${pick("account", [...accs.map((a) => a.email).filter((e) => first.facets.account.includes(e)), ...first.facets.account.filter((e) => !accs.some((a) => a.email === e))], (e) => person(e).name)}
-      ${pick("project", ["(none)", ...first.facets.project], (p) => (p === "(none)" ? "No project" : p))}
+      ${first.projects ? pick("project", ["(none)", ...first.facets.project], (p) => (p === "(none)" ? "No project" : p)) : ""}
       ${pick("model", first.facets.model, modelName)}
       ${pick("status", ["ok", "failed"], (s) => s)}`, `
     ${totalsList(first.totals)}

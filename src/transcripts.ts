@@ -9,7 +9,11 @@ const HOME = homedir();
 const TRANSCRIPTS = process.env.PROXDASH_TRANSCRIPTS ?? `${HOME}/.claude-hub/projects`;
 const known = new Map<string, string>();
 
+/** proxdash can run away from the machines that run Claude Code; there it has no transcripts, so no projects or subagents. */
+export const hasTranscripts = () => existsSync(TRANSCRIPTS);
+
 export async function projectOf(sessionId: string): Promise<string | null> {
+  if (!hasTranscripts()) return null;
   const hit = known.get(sessionId);
   if (hit) return hit;
   for await (const path of new Glob(`*/${sessionId}.jsonl`).scan(TRANSCRIPTS)) {
@@ -69,6 +73,7 @@ const parsed = new Map<string, { size: number; keys: Set<string> }>();
  * transcripts record, and a transcript sits in its parent's folder: <project>/<parent session>/subagents/.
  */
 export async function subagents(since: number) {
+  if (!hasTranscripts()) return () => null;
   const recent: { file: string; mtime: number; parent: string }[] = [];
   for await (const path of new Glob("*/*/subagents/agent-*.jsonl").scan(TRANSCRIPTS)) {
     const file = `${TRANSCRIPTS}/${path}`;
