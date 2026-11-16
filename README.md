@@ -9,8 +9,8 @@ when it will run out at the current pace, and which project spent it.
 ## Pages
 
 - **Usage**: what's left of the pool in the weekly or 5-hour window, a forecast
-  to the next resets at the recent burn rate, each account's state, and activity
-  by project and model.
+  to the next resets (the recent pace fading into the usual pace for each hour
+  of day), each account's state, and activity by project and model.
 - **Accounts**: rename, enable or remove accounts, and sign in a new one.
 - **Logs**: every request with its project, account, model, tokens, duration
   and status. Requests made by a subagent are marked under the session that started it.

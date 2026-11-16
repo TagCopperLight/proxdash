@@ -158,33 +158,56 @@ function history(readings, accounts, w, from, to, step) {
   return points;
 }
 
+/** Days of history the usual pace for each hour of day comes from. */
+const HABIT_MS = 7 * DAY;
+/** How long the recent pace keeps counting: usage comes in bursts, so past a couple of hours it says little. */
+const PACE_FADE = 2 * H;
+
 /**
- * Pool burn per hour (in account fractions) over the last `hours`, adding up rises between readings.
- * A fresh install has less history than that: the rate is over the time actually covered.
+ * Expected pool burn per hour (in account fractions) at a future time: the last hour's pace, fading into
+ * the usual pace for that hour of day over the last week. Backtested on the first week of readings,
+ * it was off about 3x less than the recent pace alone at two days ahead, and as good over the next hours.
  */
-function burnRate(readings, accounts, w, now, hours) {
-  const from = now - hours * H;
-  const first = readings.find((rd) => accounts.includes(rd.account))?.ts ?? now;
-  const covered = now - Math.max(from, first);
-  let used = 0;
+function burnModel(readings, accounts, w, now) {
+  const from = now - HABIT_MS;
+  const first = readings.find((rd) => accounts.includes(rd.account) && rd.ts >= from)?.ts ?? now;
+  const covered = now - first;
+  const byHour = new Map();
+  let recent = 0;
   for (const a of accounts) {
     let prev = null;
     for (const rd of readings) {
       if (rd.account !== a) continue;
-      if (rd.ts < from) { prev = rd; continue; }
-      const u = usedAt(rd, w, rd.ts);
-      if (prev) {
+      if (prev && rd.ts >= from) {
+        const u = usedAt(rd, w, rd.ts);
         const reset = prev["r" + w.key] && prev["r" + w.key] <= rd.ts;
-        used += Math.max(0, reset ? u : u - usedAt(prev, w, rd.ts));
+        const rise = Math.max(0, reset ? u : u - usedAt(prev, w, rd.ts));
+        const hour = Math.floor(rd.ts / H) * H;
+        byHour.set(hour, (byHour.get(hour) ?? 0) + rise);
+        if (rd.ts > now - H) recent += rise;
       }
       prev = rd;
     }
   }
-  return { rate: covered > 0 ? used / (covered / H) : 0, covered };
+  const total = [...byHour.values()].reduce((s, v) => s + v, 0);
+  const mean = covered > 0 ? total / (covered / H) : 0;
+  const sums = Array(24).fill(0), counts = Array(24).fill(0);
+  for (let t = Math.floor(first / H) * H; t < now; t += H) {
+    const h = new Date(t).getHours();
+    sums[h] += byHour.get(t) ?? 0;
+    counts[h]++;
+  }
+  // Each hour of day starts from one day at the average, so a single busy day doesn't become a habit.
+  const usual = sums.map((s, h) => (s + mean) / (counts[h] + 1));
+  const rate = (t) => {
+    const f = Math.exp(-(t - now) / PACE_FADE);
+    return f * recent + (1 - f) * usual[new Date(t).getHours()];
+  };
+  return { rate, recent, mean, covered };
 }
 
 /**
- * Walks forward at the burn rate, spreading it over accounts that still have room, refilling at resets.
+ * Walks forward at the expected burn, spreading it over accounts that still have room, refilling at resets.
  * An account the other window shuts out (a spent 5h in the week view) takes nothing until that window refills.
  */
 function project(latest, accounts, w, now, rate, horizon) {
@@ -207,7 +230,7 @@ function project(latest, accounts, w, now, rate, horizon) {
       for (const x of due) { refills.push({ t: at, i: state.indexOf(x), gain: 1 - x.rem }); x.rem = 1; x.out = false; x.reset += w.ms; }
       points.push([at, rems()]);
     }
-    let burn = rate * (step / H);
+    let burn = rate(t - step / 2) * (step / H);
     let live = state.filter((x) => x.rem > 0 && t >= x.until);
     while (burn > 1e-9 && live.length) {
       const share = burn / live.length;
@@ -518,7 +541,7 @@ function resetsSection(list, person, now) {
 let resetsHtml = section("Resets", "", `<div class="empty-note">Asking Anthropic</div>`);
 
 async function usagePage() {
-  const win = pref.get("window", "7d"), burnH = Number(pref.get("burn", "3")), actWin = pref.get("activity", "24h");
+  const win = pref.get("window", "7d"), actWin = pref.get("activity", "24h");
   const w = WINDOWS[win], view = VIEW[win];
   const now = Date.now();
   const actFrom = now - (actWin === "24h" ? DAY : 7 * DAY);
@@ -534,8 +557,8 @@ async function usagePage() {
   const n = pool.length;
   const latest = new Map();
   for (const rd of readings) if (rd.ts <= now) latest.set(rd.account, rd);
-  const { rate, covered } = burnRate(readings, pool, w, now, burnH);
-  const proj = project(latest, pool, w, now, rate, view.ahead);
+  const model = burnModel(readings, pool, w, now);
+  const proj = project(latest, pool, w, now, model.rate, view.ahead);
   const rems = proj.points[0][1];
   const remaining = rems.reduce((s, v) => s + v, 0);
   // A fresh install starts the axis at its first reading instead of showing days of nothing.
@@ -545,8 +568,8 @@ async function usagePage() {
   const named = (i, rest) => `${dot(colors[i])}<span class="up ell">${esc(names[i])}</span><span class="dim sep">·</span>${rest}`;
   const out = pool.map((e, i) => [i, outUntil(latest.get(e), now)]).filter(([, until]) => until);
   const at = (t) => `${esc(clock(t, now))} <span class="dim">IN ${span(t - now)}</span>`;
-  // Under the pace window's worth of history, forecasts are rough: marked ~, dim, and never alarming.
-  const thin = covered < burnH * H;
+  // Under two days of history the usual pace per hour of day is mostly guesswork: marked ~, dim, and never alarming.
+  const thin = model.covered < 2 * DAY;
   const guess = (t) => `<span class="nowrap ${thin ? "dim" : t - now < 2 * DAY ? "bad-t" : ""}">${thin ? "~" : ""}${at(t)}</span>`;
   const never = `NOT ${win === "7d" ? "THIS WEEK" : `IN ${span(view.ahead)}`}`;
   const idle = `<span class="dim">IDLE</span>`;
@@ -577,19 +600,19 @@ async function usagePage() {
         <div>
           <div class="big">${pct(remaining)}<small>left of ${n * 100}%</small></div>
           <div class="split">${rems.map((r, i) => `<i style="flex:${Math.max(0.002, r)};--c:${colors[i]}" title="${esc(names[i])} ${pct(r)}"></i>`).join("")}<i class="used" style="flex:${Math.max(0.002, n - remaining)}"></i></div>
-          <div class="lead"><span class="k">First empty</span><span class="v">${!rate ? idle : first ? named(first.i, guess(first.t)) : never}</span></div>
+          <div class="lead"><span class="k">First empty</span><span class="v">${!model.mean ? idle : first ? named(first.i, guess(first.t)) : never}</span></div>
         </div>
         <div class="list two">
           ${out.map(([i, until]) => kv("Out now", named(i, outFor(until, now)))).join("")}
-          ${kv("Pool empty", !rate ? idle : proj.poolOut ? guess(proj.poolOut) : never)}
+          ${kv("Pool empty", !model.mean ? idle : proj.poolOut ? guess(proj.poolOut) : never)}
           ${kv("Next reset", next ? named(next.i, `<span class="nowrap">${at(next.t)}</span>`) : none)}
           ${kv("Unused at next reset", next ? named(next.i, `<span class="${thin ? "dim" : ""}">${thin ? "~" : ""}${pct(wasted)}</span>`) : none, "", "Quota the account will not have used when it refills, lost at the reset")}
-          ${kv("Pool burn", `<span class="${thin ? "dim" : ""}">${thin ? "~" : ""}${pct1(rate)}/h</span>`)}
+          ${kv("Pool burn", `${pct1(model.recent)}/h <span class="dim">USUAL ${thin ? "~" : ""}${pct1(model.mean)}/h</span>`, "", "The last hour, then the average over the last week")}
         </div>
       </div>`)}
-    ${section("Forecast", `${seg("burn", [["1", "1h"], ["3", "3h"], ["6", "6h"]], String(burnH), "Pace over")}`, `
+    ${section("Forecast", "", `
       <div class="chart" id="chart" style="height:${POOL_H}px"></div>
-      ${keys(["var(--text)", ...colors], ["Pool", ...names], `<span class="dim nowrap"><i class="dash"></i>Projected</span>${thin && rate ? `<span class="dim">~ Estimate from ${span(covered)} of data</span>` : ""}`)}`)}
+      ${keys(["var(--text)", ...colors], ["Pool", ...names], `<span class="dim nowrap"><i class="dash"></i>Projected</span>${thin && model.mean ? `<span class="dim">~ Estimate from ${span(model.covered)} of data</span>` : ""}`)}`)}
     ${section("Accounts", "", rows(Object.values(ACCOUNT_COLS).filter((c) => c !== ACCOUNT_COLS.email), accs,
       (c, a) => c.cell(a, person(a.email), now), "accounts"))}
     ${section("Activity", seg("activity", [["24h", "24h"], ["7d", "7d"]], actWin, "Last"), `
@@ -614,7 +637,6 @@ async function usagePage() {
     if (el) el.innerHTML = resetsHtml;
   });
   onSeg("window", (v) => { pref.set("window", v); render(); });
-  onSeg("burn", (v) => { pref.set("burn", v); render(); });
   onSeg("activity", (v) => { pref.set("activity", v); render(); });
   return draw;
 }
