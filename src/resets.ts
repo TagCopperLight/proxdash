@@ -1,6 +1,5 @@
 // Anthropic's usage endpoint: reset credits, limit resets Anthropic grants an account, which Claude Code can spend
 // to clear its limits early; and the account's quota, which costs no tokens to read, unlike a request.
-import { $ } from "bun";
 import { AdminError, accountGet, credentials, type Credential } from "./admin";
 import { insertReading } from "./db";
 
@@ -52,8 +51,14 @@ export type Resets =
       scoped: string | null;
     };
 
-/** Anthropic only offers resets to Claude Code, and to a recent enough one: it asks as the installed CLI. */
-const userAgent = async () => `claude-cli/${(await $`claude --version`.text()).split(" ")[0]} (external, cli)`;
+/** Anthropic only offers resets to Claude Code, and to a recent enough one: it asks as the latest release,
+ * which needs no Claude Code on the machine. */
+async function userAgent() {
+  const res = await fetch("https://registry.npmjs.org/@anthropic-ai/claude-code/latest");
+  if (!res.ok) throw new Error(`npm registry answered ${res.status} for Claude Code's version`);
+  const { version } = (await res.json()) as { version: string };
+  return `claude-cli/${version} (external, cli)`;
+}
 
 /** Utilization comes in percent here, in fractions in the response headers readings are made from. */
 const used = (w: Window) => (w ? w.utilization / 100 : null);
