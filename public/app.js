@@ -456,7 +456,6 @@ const endOf = (g) => (g.ends_at ? Date.parse(g.ends_at) : Infinity);
 /** Why one account can't spend this grant now, or null when it can. */
 function blocker(g, acc, now) {
   const dim = (text, title = "") => `<span class="dim nowrap"${title ? ` title="${esc(title)}"` : ""}>[${esc(text)}]</span>`;
-  if (!g.resets_left) return dim("USED");
   if (endOf(g) <= now) return dim("EXPIRED");
   const cooldown = acc.cooldown_until ? Date.parse(acc.cooldown_until) : 0;
   if (cooldown > now) return dim(`COOLDOWN ${span(cooldown - now)}`, `Resets wait until ${clock(cooldown, now)}`);
@@ -467,19 +466,19 @@ function blocker(g, acc, now) {
 }
 const ready = (g, acc) => (acc.next_grant_id === g.id ? `<span class="nowrap" title="Claude Code spends this one first">READY <span class="dim">· NEXT</span></span>` : "READY");
 
-/** Each reset type with the accounts holding it, then the accounts Anthropic shows no resets for. */
+/** Each reset type with the accounts that still hold one, then the accounts Anthropic shows no resets for. */
 function resetsSection(list, person, now) {
   if (list.error) return section("Resets", "", `<div class="err">${esc(list.error)}</div>`);
   const issues = list.filter((a) => a.error || !a.eligible).map((a) => kv(who(person(a.email)), a.error
     ? `<span class="bad-t ell" title="${esc(a.error)}">${esc(a.error)}</span>`
     : `<span class="dim">${esc(INELIGIBLE[a.ineligible_reason] ?? `Not offered: ${words(a.ineligible_reason)}`).toUpperCase()}</span>`)).join("");
   const types = new Map();
-  for (const acc of list) if (!acc.error && acc.eligible) for (const g of acc.grants) {
+  for (const acc of list) if (!acc.error && acc.eligible) for (const g of acc.grants.filter((g) => g.resets_left)) {
     if (!types.has(g.id)) types.set(g.id, { g, holders: [] });
     types.get(g.id).holders.push({ acc, g });
   }
   const groups = [...types.values()].sort((a, b) => endOf(a.g) - endOf(b.g));
-  const count = (g) => `<span class="nowrap ${g.resets_left ? "" : "dim"}">${g.resets_left} <span class="dim">OF ${g.resets_total}</span></span>`;
+  const count = (g) => `<span class="nowrap">${g.resets_left} <span class="dim">OF ${g.resets_total}</span></span>`;
   // Each limit keeps one slot across every row, empty where a reset doesn't clear it, so the same limit lines up down the list.
   // Every account names its one-model weekly limit the same way.
   const scoped = list.find((a) => a.scoped)?.scoped;
@@ -493,7 +492,7 @@ function resetsSection(list, person, now) {
     { head: "Gives back", w: "minmax(24ch,2fr)", s: "auto", cls: "gives-col", cell: ({ g }) => `<span class="gives" style="--slots:${slotCols}"><span class="phone-only">${count(g)}</span>${slots.map((k) => {
       if (!g.clears.includes(k)) return `<span class="slot-empty"></span>`;
       const used = g.percent_used[k];
-      return `<span class="nowrap ${g.resets_left && used ? "" : "dim"}"><span class="dim">${esc(limitName(k, scoped)).toUpperCase()}</span> ${used == null ? "—" : `+${used}%`}</span>`;
+      return `<span class="nowrap ${used ? "" : "dim"}"><span class="dim">${esc(limitName(k, scoped)).toUpperCase()}</span> ${used == null ? "—" : `+${used}%`}</span>`;
     }).join("")}</span>` },
     { head: "Status", w: "24ch", s: "auto", r: true, cell: ({ acc, g }) => blocker(g, acc, now) ?? ready(g, acc) },
   ];
@@ -502,16 +501,15 @@ function resetsSection(list, person, now) {
   const expiryW = Math.max(...groups.map((t) => expiryText(endOf(t.g)).length));
   const items = groups.flatMap(({ g, holders }) => {
     const ends = endOf(g);
-    const unspent = holders.some((h) => h.g.resets_left);
     const expiry = ends === Infinity || ends <= now ? `<span class="dim">${expiryText(ends)}</span>`
-      : `<span class="nowrap ${unspent && ends - now < 2 * DAY ? "bad-t" : ""}" title="Unspent resets are lost then">EXPIRES ${esc(date(ends))} <span class="dim">IN ${span(ends - now)}</span></span>`;
+      : `<span class="nowrap ${ends - now < 2 * DAY ? "bad-t" : ""}" title="Unspent resets are lost then">EXPIRES ${esc(date(ends))} <span class="dim">IN ${span(ends - now)}</span></span>`;
     return [
       { divider: `<div class="reset-head" style="--expiry:${expiryW}ch"><span title="${esc(g.label)}">${esc(resetName(g, scoped))}</span>${expiry}</div><div class="reset-label dim">${esc(g.label)}</div>` },
       ...holders,
     ];
   });
   return section("Resets", groups.length ? `<span class="dim nowrap" title="Resets an account can spend right now">${usable} READY</span>` : "", `
-    ${groups.length ? rows(cols, items, (c, it) => c.cell(it), "accounts resets") : issues ? "" : `<div class="empty-note">No resets granted</div>`}
+    ${groups.length ? rows(cols, items, (c, it) => c.cell(it), "accounts resets") : issues ? "" : `<div class="empty-note">No unused resets</div>`}
     ${issues ? `<div class="list">${issues}</div>` : ""}`);
 }
 
