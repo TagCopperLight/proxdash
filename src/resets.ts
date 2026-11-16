@@ -4,8 +4,11 @@ import { $ } from "bun";
 import { AdminError, accountGet, credentials, type Credential } from "./admin";
 import { insertReading } from "./db";
 
-/** Resets change a few times a month: asking Anthropic on every one-minute page refresh would only add load. */
-const FRESH_MS = 5 * 60_000;
+/** Resets change a few times a month, and Anthropic rate-limits this endpoint: the page's countdowns run from
+ * the held grants, and the account's refresh button asks again when it matters. */
+const FRESH_MS = 6 * 60 * 60_000;
+/** A rate limit lasts minutes: asking on every one-minute page refresh would keep it going. */
+const RETRY_MS = 15 * 60_000;
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1";
 
 /** One grant: `clears` and `percent_used` name limits by Anthropic's keys (five_hour, seven_day, …). */
@@ -77,26 +80,36 @@ async function read(email: string, authIndex: string): Promise<Resets> {
   };
 }
 
-const cache = new Map<string, { at: number; value: Resets }>();
+/** `asked` is Anthropic's answer, failures included; `value` is what the page shows. */
+type Entry = { next: number; asked: Promise<Resets>; value: Promise<Resets> };
+const cache = new Map<string, Entry>();
 
-async function readAndCache({ email, auth_index }: Credential) {
-  const value = await read(email!, auth_index);
-  cache.set(email!, { at: Date.now(), value });
-  return value;
+/** The cache keeps the last good read through a failure, since resets rarely change, and waits before asking again. */
+function ask({ email, auth_index }: Credential) {
+  const prev = cache.get(email!);
+  const asked = read(email!, auth_index);
+  const entry: Entry = {
+    next: Infinity,
+    asked,
+    value: asked.then(
+      (value) => ((entry.next = Date.now() + FRESH_MS), value),
+      async (e: Error) => {
+        entry.next = Date.now() + RETRY_MS;
+        console.error(`resets for ${email}: ${e.message}`);
+        const last = prev && (await prev.value);
+        return last && !("error" in last) ? last : { email: email!, error: e.message };
+      },
+    ),
+  };
+  cache.set(email!, entry);
+  return entry;
 }
 
 export async function resets(): Promise<Resets[]> {
-  const now = Date.now();
   const claude = (await credentials()).filter((c) => c.provider === "claude" && c.email);
-  return Promise.all(claude.map(async (c) => {
+  return Promise.all(claude.map((c) => {
     const hit = cache.get(c.email!);
-    if (hit && now - hit.at < FRESH_MS) return hit.value;
-    // A failure is asked again on the next refresh, not held for minutes.
-    try {
-      return await readAndCache(c);
-    } catch (e) {
-      return { email: c.email!, error: (e as Error).message };
-    }
+    return (hit && Date.now() < hit.next ? hit : ask(c)).value;
   }));
 }
 
@@ -104,5 +117,5 @@ export async function resets(): Promise<Resets[]> {
 export async function refresh(id: string) {
   const c = (await credentials()).find((c) => c.name === id);
   if (!c?.email) throw new AdminError(404, `no account ${id}`);
-  await readAndCache(c);
+  await ask(c).asked;
 }
