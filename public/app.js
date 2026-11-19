@@ -170,7 +170,7 @@ const PACE_FADE = 2 * H;
  */
 function burnModel(readings, accounts, w, now) {
   const from = now - HABIT_MS;
-  const first = readings.find((rd) => accounts.includes(rd.account) && rd.ts >= from)?.ts ?? now;
+  const first = Math.max(from, readings.find((rd) => accounts.includes(rd.account))?.ts ?? now);
   const covered = now - first;
   const byHour = new Map();
   let recent = 0;

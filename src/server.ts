@@ -9,7 +9,14 @@ const PORT = Number(process.env.PROXDASH_PORT ?? 8318);
 const PUBLIC = `${import.meta.dir}/../public`;
 
 const latestReading = db.query<Reading, [string]>("SELECT * FROM readings WHERE account = ? ORDER BY ts DESC LIMIT 1");
-const readingsSince = db.query<Reading, [number]>("SELECT * FROM readings WHERE ts >= ? ORDER BY ts");
+// Every Anthropic response carries a reading, mostly the same numbers again: the page needs only the changes.
+const readingsSince = db.query<Reading, [number]>(
+  `SELECT account, ts, u5, r5, s5, u7, r7, s7 FROM (
+     SELECT *, LAG(u5) OVER w AS pu5, LAG(r5) OVER w AS pr5, LAG(s5) OVER w AS ps5,
+       LAG(u7) OVER w AS pu7, LAG(r7) OVER w AS pr7, LAG(s7) OVER w AS ps7, LAG(ts) OVER w AS pts
+     FROM readings WHERE ts >= ? WINDOW w AS (PARTITION BY account ORDER BY ts))
+   WHERE pts IS NULL OR u5 IS NOT pu5 OR r5 IS NOT pr5 OR s5 IS NOT ps5 OR u7 IS NOT pu7 OR r7 IS NOT pr7 OR s7 IS NOT ps7
+   ORDER BY ts`);
 const nameOf = db.query<{ name: string }, [string]>("SELECT name FROM names WHERE account = ?");
 const setName = db.query("INSERT INTO names VALUES (?, ?) ON CONFLICT (account) DO UPDATE SET name = excluded.name");
 
@@ -166,9 +173,18 @@ Bun.serve({
       }
     }
     const file = Bun.file(`${PUBLIC}${pathname === "/" ? "/index.html" : pathname}`);
-    return (await file.exists()) && !pathname.includes("..") ? new Response(file) : new Response(Bun.file(`${PUBLIC}/index.html`));
+    return staticFile(req, (await file.exists()) && !pathname.includes("..") ? file : Bun.file(`${PUBLIC}/index.html`));
   },
 });
+
+/** The browser keeps each file and asks whether it changed: a content tag, since a deploy doesn't keep file dates. */
+async function staticFile(req: Request, file: Bun.BunFile) {
+  const body = await file.bytes();
+  const etag = `"${Bun.hash(body).toString(36)}"`;
+  const headers = { ETag: etag, "Cache-Control": "no-cache", "Content-Type": file.type };
+  if (req.headers.get("If-None-Match") === etag) return new Response(null, { status: 304, headers });
+  return new Response(body, { headers });
+}
 
 function route(method: string, path: string) {
   for (const [m, pattern, handler] of routes) {
