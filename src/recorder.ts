@@ -1,21 +1,25 @@
-// Every minute: account quota readings and the per-request usage queue, into SQLite.
-import { credentials, drainUsage, type UsageRecord } from "./admin";
+// Every minute: the per-request usage queue, with each reply's quota reading, into SQLite.
+import { drainUsage, type UsageRecord } from "./admin";
 import { db, insertReading, insertRequest, prune, RETENTION_MS, type Reading, type RequestRow } from "./db";
 import { projectOf, subagents } from "./transcripts";
 
 const INTERVAL_MS = 60_000;
 const PREFIX = "Anthropic-Ratelimit-Unified-";
 
-/** Readings ride on every Anthropic response; the proxy also keeps each account's latest. */
-function reading(account: string, ts: number, get: (name: string) => string | undefined): Reading | null {
+/**
+ * Readings ride on every Anthropic response. The proxy's own latest copy per account is left out: it saves a
+ * reply's headers when the reply ends, so a long reply begun before a refusal overwrites the refusal.
+ */
+function reading(account: string, ts: number, headers: Record<string, string[]>): Reading | null {
+  const get = (name: string) => headers[PREFIX + name]?.[0];
   const num = (name: string) => {
-    const v = get(PREFIX + name);
+    const v = get(name);
     return v === undefined || v === "" ? null : Number(v);
   };
   const r = {
     account, ts,
-    u5: num("5h-Utilization"), r5: num("5h-Reset"), s5: get(PREFIX + "5h-Status") ?? null,
-    u7: num("7d-Utilization"), r7: num("7d-Reset"), s7: get(PREFIX + "7d-Status") ?? null,
+    u5: num("5h-Utilization"), r5: num("5h-Reset"), s5: get("5h-Status") ?? null,
+    u7: num("7d-Utilization"), r7: num("7d-Reset"), s7: get("7d-Status") ?? null,
   };
   if (r.u5 === null && r.u7 === null) return null;
   return { ...r, r5: r.r5 && r.r5 * 1000, r7: r.r7 && r.r7 * 1000 };
@@ -42,7 +46,7 @@ export async function recordRequest(r: UsageRecord) {
     parent: null,
   });
   const headers = r.response_headers;
-  const rd = headers && reading(r.source, ts, (n) => headers[n]?.[0]);
+  const rd = headers && reading(r.source, ts, headers);
   if (rd) insertReading.run(rd);
 }
 
@@ -66,12 +70,6 @@ async function matchAgents(since: number) {
 }
 
 export async function tick() {
-  for (const c of await credentials()) {
-    if (c.provider !== "claude" || !c.quota || !c.email) continue;
-    const signals = c.quota.signals;
-    const rd = reading(c.email, Date.parse(c.quota.observed_at), (n) => signals[n]);
-    if (rd) insertReading.run(rd);
-  }
   for (const r of await drainUsage()) await recordRequest(r);
   // A transcript can appear after its first request was recorded.
   for (const { id, session_id } of unresolved.all(Date.now() - 24 * 3600_000)) {

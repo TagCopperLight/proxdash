@@ -51,7 +51,6 @@ export async function accountGet<T>(authIndex: string, url: string, headers: Rec
   return JSON.parse(body) as T;
 }
 
-export type Signals = Record<string, string>;
 export type Credential = {
   name: string;
   auth_index: string;
@@ -59,7 +58,6 @@ export type Credential = {
   label?: string;
   provider: string;
   disabled: boolean;
-  quota?: { observed_at: string; signals: Signals };
 };
 
 export type UsageRecord = {
