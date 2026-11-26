@@ -5,6 +5,7 @@ import { start } from "./recorder";
 import { refresh, resets } from "./resets";
 import { hasTranscripts } from "./transcripts";
 
+const HOST = process.env.PROXDASH_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PROXDASH_PORT ?? 8318);
 const PUBLIC = `${import.meta.dir}/../public`;
 
@@ -158,7 +159,7 @@ const routes: [string, string, Handler][] = [
 ];
 
 Bun.serve({
-  hostname: "127.0.0.1",
+  hostname: HOST,
   port: PORT,
   async fetch(req) {
     const { pathname } = new URL(req.url);
@@ -204,4 +205,4 @@ function route(method: string, path: string) {
 }
 
 start();
-console.log(`proxdash on http://127.0.0.1:${PORT}`);
+console.log(`proxdash on http://${HOST}:${PORT}`);

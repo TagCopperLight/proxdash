@@ -40,6 +40,7 @@ It expects CLIProxyAPI on `127.0.0.1:8317` with its management key in
 
 | variable | default |
 |---|---|
+| `PROXDASH_HOST` | `127.0.0.1` |
 | `PROXDASH_PORT` | `8318` |
 | `PROXDASH_PROXY` | `http://127.0.0.1:8317` |
 | `PROXDASH_KEY_FILE` | `~/.cli-proxy-api/management-key` |
@@ -50,3 +51,15 @@ It expects CLIProxyAPI on `127.0.0.1:8317` with its management key in
 directory the proxied sessions use (`~/.claude/projects` by default).
 Where that folder is missing, as on a server that runs no Claude Code session,
 proxdash hides projects and subagent marks and shows everything else.
+
+## Docker
+
+Each version tag publishes `ghcr.io/tagcopperlight/proxdash:<version>`, which
+listens on every address of its container. Mount the key and point it at the proxy:
+
+```sh
+docker run -p 127.0.0.1:8318:8318 -v proxdash:/data \
+  -v ~/.cli-proxy-api/management-key:/run/secrets/management-key:ro \
+  -e PROXDASH_DATA=/data -e PROXDASH_KEY_FILE=/run/secrets/management-key \
+  -e PROXDASH_PROXY=http://proxy:8317 ghcr.io/tagcopperlight/proxdash:1.0.0
+```
